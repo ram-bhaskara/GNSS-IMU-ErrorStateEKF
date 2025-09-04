@@ -1,0 +1,17 @@
+esekf_node:
+  ros__parameters:
+    frame_map: "map"
+    frame_odom: "odom"
+    frame_base: "base_link"
+    use_first_fix_as_origin: true
+    gravity: 9.81
+    gnss_position_std: 1.5 
+
+
+# https://github.com/HKUST-Aerial-Robotics/GVINS-Dataset/blob/main/data/visensor_parameters/imu.yaml
+  
+    imu_noise:
+      gyro_std: 0.001
+      accel_std: 0.01
+      gyro_bias_rw: 1e-5
+      accel_bias_rw: 1e-4
