@@ -22,23 +22,23 @@ class ESEKF {
             P_.setZero(); 
             delta_x_.setZero();
             
-            F_i_.setZero(); // 18x12 matrix for process noise
-            F_i_.block<3,3>(3,0) = Eigen::Matrix3d::Identity();  // accel noise -> velocity dynamics
-            F_i_.block<3,3>(6,3) = Eigen::Matrix3d::Identity();  // gyro noise -> attitude error
-            F_i_.block<3,3>(9,6) = Eigen::Matrix3d::Identity();  // bias acc random walk
-            F_i_.block<3,3>(12,9) = Eigen::Matrix3d::Identity(); // gyro bias
+            F_i_.setZero(); 
+            F_i_.block<3,3>(3,0) = Eigen::Matrix3d::Identity();  
+            F_i_.block<3,3>(6,3) = Eigen::Matrix3d::Identity();  
+            F_i_.block<3,3>(9,6) = Eigen::Matrix3d::Identity();  
+            F_i_.block<3,3>(12,9) = Eigen::Matrix3d::Identity(); 
             
-            // Process noise - Continuous time
+            
             Qc.setZero();
-            Qc.block<3,3>(0,0) = (sigma_a_ * sigma_a_) * Eigen::Matrix3d::Identity();  // accel noise
-            Qc.block<3,3>(3,3) = (sigma_g_ * sigma_g_) * Eigen::Matrix3d::Identity();  // gyro noise
-            Qc.block<3,3>(6,6) = (rw_ba_ * rw_ba_) * Eigen::Matrix3d::Identity();      // bias a rw
-            Qc.block<3,3>(9,9) = (rw_bg_ * rw_bg_) * Eigen::Matrix3d::Identity();      // bias g rw
+            Qc.block<3,3>(0,0) = (sigma_a_ * sigma_a_) * Eigen::Matrix3d::Identity();  
+            Qc.block<3,3>(3,3) = (sigma_g_ * sigma_g_) * Eigen::Matrix3d::Identity();  
+            Qc.block<3,3>(6,6) = (rw_ba_ * rw_ba_) * Eigen::Matrix3d::Identity();      
+            Qc.block<3,3>(9,9) = (rw_bg_ * rw_bg_) * Eigen::Matrix3d::Identity();     
             
-            // measurement Jacobians / other mats
+            
             H_.setZero();
             H_t.setZero();
-            Jac_error_to_nominal.setIdentity(); // default identity mapping (error -> nominal)
+            Jac_error_to_nominal.setIdentity(); 
             G_.setIdentity();
                 
             }
