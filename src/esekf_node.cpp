@@ -26,13 +26,14 @@ public:
         double sig_a = this->declare_parameter<double>("imu_noise.accel_std", 1e-2);
         double rw_bg = this->declare_parameter<double>("imu_noise.gyro_bias_rw", 1e-6);
         double rw_ba = this->declare_parameter<double>("imu_noise.accel_bias_rw", 1e-5);
-   
-        ekf_.reset();
-        ekf_.setGravity(gravity_);
+
         ekf_.setProcessNoises(sig_g, sig_a, rw_bg, rw_ba);
 
         odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("esekf/odom", 10);
         path_pub_ = this->create_publisher<nav_msgs::msg::Path>("esekf/path", 10);
+
+        gps_odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("gps/odom", 10);
+        gps_path_pub_ = this->create_publisher<nav_msgs::msg::Path>("gps/path", 10);
 
         imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
             "/imu0", 100,
@@ -47,8 +48,9 @@ public:
         tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
         path_msg_.header.frame_id = frame_map_;
+        gps_path_msg_.header.frame_id = frame_map_; 
 
-        RCLCPP_INFO(this->get_logger(), "ESEKF Node's up.");
+        RCLCPP_INFO(this->get_logger(), "ESEKF Node's up. Frames will be fixed in next iter of this SW");
     }
 
     private:
@@ -93,6 +95,8 @@ void gnssCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
                                   x, y, z);
         Eigen::Vector3d z_ENU(x, y, z);
 
+        publishGPSVisualization(msg->header.stamp, z_ENU);
+
         Eigen::Matrix3d Rm = Eigen::Matrix3d::Identity() * (gnss_pos_std_ * gnss_pos_std_);
         if (msg->position_covariance_type != sensor_msgs::msg::NavSatFix::COVARIANCE_TYPE_UNKNOWN) {
             Rm << msg->position_covariance[0], msg->position_covariance[1], msg->position_covariance[2],
@@ -103,6 +107,35 @@ void gnssCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
         publishOdom(msg->header.stamp);
     }
 
+    void publishGPSVisualization(const builtin_interfaces::msg::Time& stamp, const Eigen::Vector3d& pos_enu) {
+        nav_msgs::msg::Odometry gps_odom;
+        gps_odom.header.stamp = stamp;
+        gps_odom.header.frame_id = frame_map_;
+        gps_odom.child_frame_id = "gps_link";
+        gps_odom.pose.pose.position.x = pos_enu(0);
+        gps_odom.pose.pose.position.y = pos_enu(1);
+        gps_odom.pose.pose.position.z = pos_enu(2);
+        gps_odom.pose.pose.orientation.w = 1.0; // GPS doesn't provide orientation
+        gps_odom.pose.pose.orientation.x = 0.0;
+        gps_odom.pose.pose.orientation.y = 0.0;
+        gps_odom.pose.pose.orientation.z = 0.0;
+
+        gps_odom_pub_->publish(gps_odom);
+
+        // GPS Path
+        geometry_msgs::msg::PoseStamped gps_pose_stamped;
+        gps_pose_stamped.header = gps_odom.header;
+        gps_pose_stamped.pose = gps_odom.pose.pose;
+
+        gps_path_msg_.header = gps_odom.header;
+        gps_path_msg_.poses.push_back(gps_pose_stamped);
+
+        const size_t MAX_GPS_PATH = 20000;
+        if (gps_path_msg_.poses.size() > MAX_GPS_PATH)
+            gps_path_msg_.poses.erase(gps_path_msg_.poses.begin());
+
+        gps_path_pub_->publish(gps_path_msg_);
+    }
 static double toSec(const builtin_interfaces::msg::Time &time) {
             return static_cast<double>(time.sec) + static_cast<double>(time.nanosec) * 1e-9;
         
@@ -125,30 +158,7 @@ void publishOdom(const builtin_interfaces::msg::Time& stamp_msg) {
         odom.twist.twist.linear.x = s.v_W(0);
         odom.twist.twist.linear.y = s.v_W(1);
         odom.twist.twist.linear.z = s.v_W(2);
-        Eigen::Matrix<double,15,15> P = ekf_.covariance();
-
-        for (int i = 0; i < 3; ++i)
-            for (int j = 0; j < 3; ++j)
-                odom.pose.covariance[i*6 + j] = P(6 + i, 6 + j);
-
-        for (int i = 0; i < 3; ++i)
-            for (int j = 0; j < 3; ++j)
-                odom.pose.covariance[(3 + i)*6 + (3 + j)] = P(0 + i, 0 + j);
-
-        for (int i = 0; i < 3; ++i)
-            for (int j = 0; j < 3; ++j) {
-                odom.pose.covariance[i*6 + (3 + j)] = P(6 + i, 0 + j); // pos vs rot
-                odom.pose.covariance[(3 + i)*6 + j] = P(0 + i, 6 + j); // rot vs pos
-            }
-
-        for (int i = 0; i < 3; ++i)
-            for (int j = 0; j < 3; ++j)
-                odom.twist.covariance[i*6 + j] = P(3 + i, 3 + j);
-
-        double small_ang_var = 1e-3;
-        for (int i = 0; i < 3; ++i)
-            odom.twist.covariance[(3 + i)*6 + (3 + i)] = small_ang_var;
-
+        
         odom_pub_->publish(odom);
 
         geometry_msgs::msg::TransformStamped tf;
@@ -200,6 +210,11 @@ void publishOdom(const builtin_interfaces::msg::Time& stamp_msg) {
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
     nav_msgs::msg::Path path_msg_;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+
+    // gps
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr gps_odom_pub_;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr gps_path_pub_;
+    nav_msgs::msg::Path gps_path_msg_;
 };
 
 
